@@ -1,0 +1,7 @@
+{
+  "name": "gsr-procesador",
+  "private": true,
+  "description": "Procesador automático: abre la app cada hora para que los números estén al día aunque nadie entre",
+  "scripts": { "procesar": "node procesar.js" },
+  "dependencies": { "puppeteer-core": "23.11.1" }
+}

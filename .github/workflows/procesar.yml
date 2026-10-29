@@ -1,0 +1,35 @@
+# Procesador automático de GSR360: cada hora de 6:20 a 22:20 (hora del centro de México) abre la app, baja lo nuevo de OneDrive y lo recalcula.
+# Gratis en un repositorio público (los minutos no se cobran). No guarda nada entre corridas y no imprime datos de la empresa.
+# Si una corrida falla, GitHub te manda un correo. El día 1 de cada mes deja un registro vacío para que GitHub no pause el horario.
+name: Procesar GSR360
+on:
+  schedule:
+    - cron: '20 12-23 * * *'   # 6:20 a 17:20 en Ciudad de México (UTC-6)
+    - cron: '20 0-4 * * *'     # 18:20 a 22:20
+  workflow_dispatch: {}         # botón «Run workflow» para correrlo a mano
+concurrency: { group: procesar, cancel-in-progress: false }
+permissions: { contents: write }
+jobs:
+  procesar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm install --no-audit --no-fund --silent
+      - name: Procesar
+        env:
+          GSR_URL: ${{ secrets.GSR_URL }}
+          GSR_USUARIO: ${{ secrets.GSR_USUARIO }}
+          GSR_CLAVE: ${{ secrets.GSR_CLAVE }}
+          CHROME_PATH: /usr/bin/google-chrome
+          TZ: America/Mexico_City
+        run: node procesar.js
+      - name: Mantener activo el horario (día 1 de cada mes)
+        if: github.event_name == 'schedule' && always()
+        run: |
+          if [ "$(TZ=America/Mexico_City date +%d)" = "01" ] && [ "$(TZ=America/Mexico_City date +%H)" = "06" ]; then
+            git config user.name "procesador" && git config user.email "procesador@users.noreply.github.com"
+            git commit --allow-empty -m "Mantener activo el procesador" && git push
+          fi

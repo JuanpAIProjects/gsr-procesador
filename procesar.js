@@ -31,18 +31,23 @@ async function procesar(page, o) {
   // El respaldo en Excel del día se arma 90 segundos después de entrar (una vez al día): darle tiempo
   if (Date.now() - t0 < 120000) await espera(120000 - (Date.now() - t0)); await esperarQuieto(5000);
   e = await est();
-  return e && e.error ? { ok: false, error: 'OneDrive: ' + e.error, archivos: e.archivos } : { ok: true, archivos: e ? e.archivos : 0 };
+  // v222: revisión de lo que no cuadra (la app la guarda en la nube y la manda a los administradores a las 9:00); aquí solo cuántos puntos
+  const rev = await page.evaluate(() => window.gsrRobot && window.gsrRobot.revisar ? window.gsrRobot.revisar() : null).catch(() => null);
+  return e && e.error ? { ok: false, error: 'OneDrive: ' + e.error, archivos: e.archivos } : { ok: true, archivos: e ? e.archivos : 0, puntos: rev ? rev.puntos : null };
 }
 
 async function main() {
   const url = process.env.GSR_URL, usuario = process.env.GSR_USUARIO, clave = process.env.GSR_CLAVE;
   if (!url || !usuario || !clave) { console.error('Faltan los secretos GSR_URL, GSR_USUARIO o GSR_CLAVE'); process.exit(1); }
-  const b = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  let r; try { const p = await b.newPage(); await p.emulateTimezone('America/Mexico_City'); await p.setViewport({ width: 1280, height: 900 });
-    p.on('dialog', d => d.dismiss().catch(() => null)); r = await procesar(p, { url, usuario, clave }); }
-  catch (er) { r = { ok: false, error: String(er && er.message || er).slice(0, 200) }; }
-  finally { await b.close().catch(() => null); }
-  if (r.ok) { log('Listo: datos al día (' + r.archivos + ' archivos vigentes).'); process.exit(0); }
+  // v222: si falla por algo pasajero (la app tardó, OneDrive no respondió), lo intenta una vez más antes de avisar
+  let r; for (let intento = 1; intento <= 2; intento++) { const b = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    try { const p = await b.newPage(); await p.emulateTimezone('America/Mexico_City'); await p.setViewport({ width: 1280, height: 900 });
+      p.on('dialog', d => d.dismiss().catch(() => null)); r = await procesar(p, { url, usuario, clave }); }
+    catch (er) { r = { ok: false, error: String(er && er.message || er).slice(0, 200) }; }
+    finally { await b.close().catch(() => null); }
+    if (r.ok || /contraseña|permiso|Faltan/.test(r.error || '') || intento === 2) break;
+    log('Falló (' + r.error + '); se intenta otra vez en 30 segundos…'); await espera(30000); }
+  if (r.ok) { log('Listo: datos al día (' + r.archivos + ' archivos vigentes' + (r.puntos != null ? '; revisión: ' + r.puntos + ' punto(s) por revisar, el detalle lo ve el administrador en la app' : '') + ').'); process.exit(0); }
   console.error('Falló: ' + r.error); process.exit(1);
 }
 if (require.main === module) main();

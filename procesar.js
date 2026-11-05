@@ -55,7 +55,12 @@ async function procesar(page, o) {
 // Revisa una versión nueva: cada pestaña de cada módulo, anotando los errores de la página (sin datos de la empresa: solo la pestaña y el error técnico)
 async function probarVersion(page, ver) { const errores = [], oir = er => errores.push(String(er && er.message || er).slice(0, 160)); page.on('pageerror', oir);
   const rutas = await page.evaluate(() => window.gsrRobot && window.gsrRobot.rutas ? window.gsrRobot.rutas() : []).catch(() => []), malas = [];
-  for (const r of rutas) { const n0 = errores.length; await page.evaluate(v => window.gsrRobot.ir(v), r).catch(() => null); await espera(1200); if (errores.length > n0) malas.push({ ruta: r, error: errores[errores.length - 1] }); }
+  // v238: en tamaño teléfono, además de los errores de código, la revisión visual (tablas aplastadas, texto roto, cosas que se salen de la pantalla)
+  const vp = page.viewport(); await page.setViewport({ width: 390, height: 844 }).catch(() => null);
+  for (const r of rutas) { const n0 = errores.length; await page.evaluate(v => window.gsrRobot.ir(v), r).catch(() => null); await espera(1200);
+    const vis = await page.evaluate(() => window.gsrRobot.pantalla ? window.gsrRobot.pantalla() : []).catch(() => []);
+    if (errores.length > n0) malas.push({ ruta: r, error: errores[errores.length - 1] }); else if (vis.length) malas.push({ ruta: r, error: vis.join('; ') }); }
+  if (vp) await page.setViewport(vp).catch(() => null);
   page.off('pageerror', oir); const res = { version: ver, ok: !malas.length, revisadas: rutas.length, errores: malas.slice(0, 20) };
   await page.evaluate(x => window.gsrRobot.guardarPrueba(x), res).catch(() => null);
   log('Versión ' + ver + ': ' + rutas.length + ' pestañas revisadas, ' + (malas.length ? malas.length + ' con error: ' + malas.slice(0, 5).map(m => m.ruta).join(', ') : 'sin errores'));

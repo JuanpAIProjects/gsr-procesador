@@ -57,25 +57,28 @@ async function probarVersion(page, ver) { const errores = [], oir = er => errore
   const rutas = await page.evaluate(() => window.gsrRobot && window.gsrRobot.rutas ? window.gsrRobot.rutas() : []).catch(() => []), malas = [];
   // v238: en tamaño teléfono, además de los errores de código, la revisión visual (tablas aplastadas, texto roto, cosas que se salen de la pantalla)
   const vp = page.viewport(); await page.setViewport({ width: 390, height: 844 }).catch(() => null);
-  for (const r of rutas) { const n0 = errores.length; await page.evaluate(v => window.gsrRobot.ir(v), r).catch(() => null); await espera(1200);
+  // v247: la revisión de pestañas tiene su propio tope (5 minutos) para no pasarse del límite de la corrida; si no alcanza, lo dice
+  const tTope = Date.now() + 5 * 60000; let hechas = 0;
+  for (const r of rutas) { if (Date.now() > tTope) break; hechas++; const n0 = errores.length; await page.evaluate(v => window.gsrRobot.ir(v), r).catch(() => null); await espera(1200);
     const vis = await page.evaluate(() => window.gsrRobot.pantalla ? window.gsrRobot.pantalla() : []).catch(() => []);
     if (errores.length > n0) malas.push({ ruta: r, error: errores[errores.length - 1] }); else if (vis.length) malas.push({ ruta: r, error: vis.join('; ') }); }
   if (vp) await page.setViewport(vp).catch(() => null);
-  page.off('pageerror', oir); const res = { version: ver, ok: !malas.length, revisadas: rutas.length, errores: malas.slice(0, 20) };
+  page.off('pageerror', oir); const res = { version: ver, ok: !malas.length, revisadas: hechas, de: rutas.length, errores: malas.slice(0, 20) };
   await page.evaluate(x => window.gsrRobot.guardarPrueba(x), res).catch(() => null);
-  log('Versión ' + ver + ': ' + rutas.length + ' pestañas revisadas, ' + (malas.length ? malas.length + ' con error: ' + malas.slice(0, 5).map(m => m.ruta).join(', ') : 'sin errores'));
+  log('Versión ' + ver + ': ' + hechas + (hechas < rutas.length ? ' de ' + rutas.length : '') + ' pestañas revisadas' + (hechas < rutas.length ? ' (se acabó el tiempo de la revisión)' : '') + ', ' + (malas.length ? malas.length + ' con error: ' + malas.slice(0, 5).map(m => m.ruta).join(', ') : 'sin errores'));
   return res; }
 
 async function main() {
   const url = process.env.GSR_URL, usuario = process.env.GSR_USUARIO, clave = process.env.GSR_CLAVE;
   if (!url || !usuario || !clave) { console.error('Faltan los secretos GSR_URL, GSR_USUARIO o GSR_CLAVE'); process.exit(1); }
   // v222: si falla por algo pasajero (la app tardó, OneDrive no respondió), lo intenta una vez más antes de avisar
-  let r; for (let intento = 1; intento <= 2; intento++) { const b = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  // v247: el segundo intento solo si el primero falló pronto (dos intentos largos se pasaban de los 30 minutos de la corrida y GitHub la cancelaba sin avisar)
+  const t00 = Date.now(); let r; for (let intento = 1; intento <= 2; intento++) { const b = await puppeteer.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
     try { const p = await b.newPage(); await p.emulateTimezone('America/Mexico_City'); await p.setViewport({ width: 1280, height: 900 });
       p.on('dialog', d => d.dismiss().catch(() => null)); r = await procesar(p, { url, usuario, clave }); }
     catch (er) { r = { ok: false, error: String(er && er.message || er).slice(0, 200) }; }
     finally { await b.close().catch(() => null); }
-    if (r.ok || /contraseña|permiso|Faltan/.test(r.error || '') || intento === 2) break;
+    if (r.ok || /contraseña|permiso|Faltan/.test(r.error || '') || intento === 2 || Date.now() - t00 > 8 * 60000) break;
     log('Falló (' + r.error + '); se intenta otra vez en 30 segundos…'); await espera(30000); }
   if (r.ok && r.sinCambios) { log('Sin cambios desde el último cálculo: no se bajó nada.'); process.exit(0); }
   if (r.ok) { log('Listo: datos al día (' + r.archivos + ' archivos vigentes' + (r.puntos != null ? '; revisión: ' + r.puntos + ' punto(s) por revisar, el detalle lo ve el administrador en la app' : '') + ').'); process.exit(0); }

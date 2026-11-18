@@ -1,4 +1,7 @@
 # Procesador automático de GSR360: cada hora de 6:20 a 22:20 (hora del centro de México) abre la app, baja lo nuevo de OneDrive y lo recalcula.
+# v280: GitHub solo dispara 2 a 4 de las corridas programadas al día; por eso Supabase (sección 51) pide la corrida cada hora con «workflow_dispatch».
+# El horario de abajo se queda como respaldo. Si guardas el secreto HC_PING_URL (healthchecks.io, gratis), al terminar bien le avisa;
+# si un día no llega ese aviso, healthchecks te manda correo (cubre corridas canceladas, saltadas o el horario apagado).
 # Gratis en un repositorio público (los minutos no se cobran). No guarda nada entre corridas y no imprime datos de la empresa.
 # Si una corrida falla dos veces seguidas, GitHub te manda un correo.
 # v222: ya no hace un «commit» el día 1 para que GitHub no pause el horario (eso falló el 1 de noviembre): ahora le pide a GitHub
@@ -28,6 +31,11 @@ jobs:
           CHROME_PATH: /usr/bin/google-chrome
           TZ: America/Mexico_City
         run: node procesar.js
+      - name: Avisar que terminó bien (healthchecks.io, opcional)
+        if: success()
+        continue-on-error: true
+        env: { HC: '${{ secrets.HC_PING_URL }}' }
+        run: if [ -n "$HC" ]; then curl -fsS -m 10 --retry 3 "$HC" > /dev/null && echo "Aviso enviado"; else echo "Sin HC_PING_URL"; fi
       - name: Mantener activo el horario
         if: github.event_name == 'schedule' && always()
         continue-on-error: true

@@ -39,27 +39,28 @@ async function procesar(page, o) {
   await page.evaluate(() => window.gsrRobot.sincronizar()).catch(() => null); log('Revisión de OneDrive forzada…');
   if (!(await esperarQuieto(10000))) return { ok: false, error: 'Se tardó más de ' + (o.maxMin || 12) + ' minutos' };
   // El respaldo en Excel del día se arma 90 segundos después de entrar (una vez al día): darle tiempo
-  if (Date.now() - t0 < 120000) await espera(120000 - (Date.now() - t0)); await esperarQuieto(5000);
+  // (o.esperaRespaldo solo lo bajan las pruebas, para no esperar dos minutos en cada corrida de prueba)
+  const eR = o.esperaRespaldo == null ? 120000 : o.esperaRespaldo; if (Date.now() - t0 < eR) await espera(eR - (Date.now() - t0)); await esperarQuieto(5000);
   e = await est();
   // v222: revisión de lo que no cuadra (la app la guarda en la nube y la manda a los administradores a las 9:00); aquí solo cuántos puntos
   const rev = await page.evaluate(() => window.gsrRobot && window.gsrRobot.revisar ? window.gsrRobot.revisar() : null).catch(() => null);
   // v237: si el cálculo de esta corrida falló, la corrida sale en rojo y dice en palabras dónde (la app también lo deja en la nube para los avisos)
   const fallo = await page.evaluate(t => window.gsrRobot && window.gsrRobot.errorCalculo ? window.gsrRobot.errorCalculo(t) : '', t0).catch(() => '');
   // v237: versión nueva de la app: abre cada pestaña de cada módulo y anota si alguna tiene errores
-  let prueba = null; if (probar) prueba = await probarVersion(page, ver);
+  let prueba = null; if (probar) prueba = await probarVersion(page, ver, o.pausaRuta);
   if (e && e.error) return { ok: false, error: 'OneDrive: ' + e.error, archivos: e.archivos, prueba };
   if (fallo) return { ok: false, error: fallo, archivos: e ? e.archivos : 0, prueba };
   return { ok: true, archivos: e ? e.archivos : 0, puntos: rev ? rev.puntos : null, prueba };
 }
 
 // Revisa una versión nueva: cada pestaña de cada módulo, anotando los errores de la página (sin datos de la empresa: solo la pestaña y el error técnico)
-async function probarVersion(page, ver) { const errores = [], oir = er => errores.push(String(er && er.message || er).slice(0, 160)); page.on('pageerror', oir);
+async function probarVersion(page, ver, pausa) { const errores = [], oir = er => errores.push(String(er && er.message || er).slice(0, 160)); page.on('pageerror', oir);
   const rutas = await page.evaluate(() => window.gsrRobot && window.gsrRobot.rutas ? window.gsrRobot.rutas() : []).catch(() => []), malas = [];
   // v238: en tamaño teléfono, además de los errores de código, la revisión visual (tablas aplastadas, texto roto, cosas que se salen de la pantalla)
   const vp = page.viewport(); await page.setViewport({ width: 390, height: 844 }).catch(() => null);
   // v247: la revisión de pestañas tiene su propio tope (5 minutos) para no pasarse del límite de la corrida; si no alcanza, lo dice
   const tTope = Date.now() + 5 * 60000; let hechas = 0;
-  for (const r of rutas) { if (Date.now() > tTope) break; hechas++; const n0 = errores.length; await page.evaluate(v => window.gsrRobot.ir(v), r).catch(() => null); await espera(1200);
+  for (const r of rutas) { if (Date.now() > tTope) break; hechas++; const n0 = errores.length; await page.evaluate(v => window.gsrRobot.ir(v), r).catch(() => null); await espera(pausa || 1200);
     const vis = await page.evaluate(() => window.gsrRobot.pantalla ? window.gsrRobot.pantalla() : []).catch(() => []);
     if (errores.length > n0) malas.push({ ruta: r, error: errores[errores.length - 1] }); else if (vis.length) malas.push({ ruta: r, error: vis.join('; ') }); }
   if (vp) await page.setViewport(vp).catch(() => null);
